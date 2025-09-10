@@ -1,0 +1,98 @@
+# EduPro Suite - Development Environment
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: edupro_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: edupro_suite
+      POSTGRES_USER: edupro
+      POSTGRES_PASSWORD: edupro123
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - edupro_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edupro -d edupro_suite"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (Optional - for session storage and caching)
+  redis:
+    image: redis:7-alpine
+    container_name: edupro_redis
+    restart: unless-stopped
+    command: redis-server --requirepass redis123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - edupro_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # EduPro Suite Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: edupro_app
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://edupro:edupro123@postgres:5432/edupro_suite
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=edupro-suite-super-secret-production-key-2024
+      - REDIS_URL=redis://:redis123@redis:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - edupro_network
+    volumes:
+      - uploads:/app/uploads
+      - logs:/app/logs
+
+  # Adminer (Database Management Interface)
+  adminer:
+    image: adminer:4
+    container_name: edupro_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    networks:
+      - edupro_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads:
+    driver: local
+  logs:
+    driver: local
+
+networks:
+  edupro_network:
+    driver: bridge
